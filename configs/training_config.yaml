@@ -1,0 +1,71 @@
+# ==============================================================================
+# Training Configuration for QLoRA Fine-Tuning Pipeline
+# ==============================================================================
+
+model:
+  model_id: "Qwen/Qwen2.5-1.5B-Instruct"
+  torch_dtype: "bfloat16"
+  trust_remote_code: false
+  use_fast_tokenizer: true
+
+quantization:
+  load_in_4bit: true
+  bnb_4bit_quant_type: "nf4"
+  bnb_4bit_use_double_quant: true
+  bnb_4bit_compute_dtype: "bfloat16"
+
+lora:
+  r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  bias: "none"
+  task_type: "CAUSAL_LM"
+  target_modules:
+    - "q_proj"
+    - "k_proj"
+    - "v_proj"
+    - "o_proj"
+    - "gate_proj"
+    - "up_proj"
+    - "down_proj"
+
+data:
+  dataset_name: "databricks/databricks-dolly-15k"
+  raw_data_path: "data/raw/dataset.jsonl"
+  train_path: "data/processed/train.jsonl"
+  validation_path: "data/processed/validation.jsonl"
+  test_path: "data/processed/test.jsonl"
+  sample_path: "data/samples/sample_100.jsonl"
+  train_split: 0.80
+  val_split: 0.10
+  test_split: 0.10
+  max_seq_length: 1024
+  text_column: "text"
+  min_examples: 1000
+  seed: 42
+
+training:
+  output_dir: "outputs/checkpoints"
+  final_adapter_dir: "outputs/final_adapter"
+  logging_dir: "runs"
+  report_to: "tensorboard"
+  learning_rate: 2.0e-4
+  lr_scheduler_type: "cosine"
+  warmup_ratio: 0.03
+  weight_decay: 0.01
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 2
+  gradient_accumulation_steps: 4
+  num_train_epochs: 3
+  max_steps: -1
+  logging_steps: 10
+  eval_strategy: "steps"
+  eval_steps: 50
+  save_strategy: "steps"
+  save_steps: 50
+  save_total_limit: 2
+  load_best_model_at_end: false
+  gradient_checkpointing: true
+  fp16: false
+  bf16: true
+  seed: 42

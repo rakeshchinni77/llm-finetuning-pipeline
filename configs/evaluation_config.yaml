@@ -1,0 +1,34 @@
+# ==============================================================================
+# Evaluation Configuration for Base vs. Fine-Tuned Model Comparison
+# ==============================================================================
+
+model:
+  base_model_id: "Qwen/Qwen2.5-1.5B-Instruct"
+  adapter_dir: "outputs/final_adapter"
+  torch_dtype: "bfloat16"
+  load_in_4bit: true
+
+data:
+  test_data_path: "data/processed/test.jsonl"
+  max_eval_samples: 50
+  max_seq_length: 1024
+
+generation:
+  max_new_tokens: 256
+  temperature: 0.1
+  top_p: 0.9
+  do_sample: false
+  repetition_penalty: 1.1
+
+metrics:
+  compute_rouge: true
+  compute_perplexity: true
+  rouge_types:
+    - "rouge1"
+    - "rouge2"
+    - "rougeL"
+
+output:
+  predictions_dir: "outputs/predictions"
+  results_json: "outputs/predictions/evaluation_metrics.json"
+  comparison_csv: "outputs/predictions/comparison_results.csv"

@@ -1,0 +1,30 @@
+# Core Machine Learning & Transformer Libraries
+torch>=2.1.0
+transformers>=4.44.0
+peft>=0.12.0
+trl>=0.9.6
+accelerate>=0.33.0
+datasets>=2.20.0
+bitsandbytes>=0.43.0; sys_platform != 'win32'
+bitsandbytes-windows>=0.43.0; sys_platform == 'win32'
+
+# Experiment Tracking & MLOps
+tensorboard>=2.15.0
+wandb>=0.17.0
+
+# Evaluation & Metrics
+evaluate>=0.4.2
+rouge-score>=0.1.2
+nltk>=3.8.1
+scipy>=1.11.0
+
+# Configuration & Utilities
+pyyaml>=6.0.1
+python-dotenv>=1.0.1
+pydantic>=2.7.0
+tqdm>=4.66.0
+packaging>=23.0
+
+# Testing & Quality
+pytest>=8.0.0
+pytest-mock>=3.12.0
