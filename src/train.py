@@ -1,6 +1,7 @@
 """End-to-End Supervised Fine-Tuning (SFT) training pipeline with PEFT/LoRA and TRL."""
 
 import argparse
+import inspect
 import os
 import sys
 from pathlib import Path
@@ -170,32 +171,43 @@ def run_training(config: Dict[str, Any]) -> None:
         "seed": seed,
     }
 
-    # Filter training_kwargs for cross-version compatibility
-    clean_kwargs = {k: v for k, v in training_kwargs.items() if k != "logging_dir"}
-    if not use_cuda:
+    # Dynamically filter training kwargs based on supported parameters in the installed TRL/Transformers
+    sig = inspect.signature(SFTConfig.__init__)
+    supported_params = set(sig.parameters.keys())
+
+    clean_kwargs = {k: v for k, v in training_kwargs.items() if k in supported_params and k != "logging_dir"}
+    if not use_cuda and "use_cpu" in supported_params:
         clean_kwargs["use_cpu"] = True
+
+    # Handle warmup_steps if warmup_ratio is unsupported
+    if "warmup_steps" in supported_params and "warmup_ratio" not in supported_params:
+        max_steps = int(training_kwargs.get("max_steps", 60))
+        warmup_ratio = float(training_kwargs.get("warmup_ratio", 0.03))
+        clean_kwargs["warmup_steps"] = max(1, int(max_steps * warmup_ratio)) if max_steps > 0 else 5
 
     max_len = int(data_cfg.get("max_seq_length", 1024))
     dataset_text_field = data_cfg.get("text_column", "text")
 
-    # Initialize SFTConfig (or TrainingArguments for older trl versions)
+    if "max_length" in supported_params:
+        clean_kwargs["max_length"] = max_len
+    elif "max_seq_length" in supported_params:
+        clean_kwargs["max_seq_length"] = max_len
+
+    if "dataset_text_field" in supported_params:
+        clean_kwargs["dataset_text_field"] = dataset_text_field
+
     try:
-        # Newer TRL SFTConfig uses max_length
-        training_args = SFTConfig(
-            max_length=max_len,
-            dataset_text_field=dataset_text_field,
-            **clean_kwargs
-        )
-    except TypeError:
-        try:
-            # Older TRL SFTConfig uses max_seq_length
-            training_args = SFTConfig(
-                max_seq_length=max_len,
-                dataset_text_field=dataset_text_field,
-                **clean_kwargs
-            )
-        except (TypeError, NameError):
-            training_args = TrainingArguments(**clean_kwargs)
+        training_args = SFTConfig(**clean_kwargs)
+    except Exception as e:
+        logger.warning(f"SFTConfig instantiation fell back due to: {e}. Trying TrainingArguments fallback...")
+        ta_sig = inspect.signature(TrainingArguments.__init__)
+        ta_params = set(ta_sig.parameters.keys())
+        ta_kwargs = {k: v for k, v in training_kwargs.items() if k in ta_params and k != "logging_dir"}
+        if "warmup_steps" in ta_params and "warmup_ratio" not in ta_params:
+            ta_kwargs["warmup_steps"] = max(1, int(int(training_kwargs.get("max_steps", 60)) * float(training_kwargs.get("warmup_ratio", 0.03))))
+        if not use_cuda and "use_cpu" in ta_params:
+            ta_kwargs["use_cpu"] = True
+        training_args = TrainingArguments(**ta_kwargs)
 
     try:
         training_args.logging_dir = logging_dir
