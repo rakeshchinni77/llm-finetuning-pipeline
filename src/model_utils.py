@@ -130,9 +130,14 @@ def load_model_and_tokenizer(
 
     model = AutoModelForCausalLM.from_pretrained(model_id, **load_kwargs)
 
-    # Detailed architecture and provenance verification
+    # Align model config precision attributes with selected_dtype to prevent silent BF16 overrides
     cfg = getattr(model, "config", None)
     if cfg is not None:
+        cfg.torch_dtype = selected_dtype
+        if hasattr(cfg, "get_text_config"):
+            txt_cfg = cfg.get_text_config()
+            if txt_cfg is not None:
+                txt_cfg.torch_dtype = selected_dtype
         hidden_size = getattr(cfg, "hidden_size", None)
         num_layers = getattr(cfg, "num_hidden_layers", None)
         intermediate_size = getattr(cfg, "intermediate_size", None)
@@ -141,7 +146,8 @@ def load_model_and_tokenizer(
         logger.info(
             f"Verified Model Architecture: name_or_path='{name_or_path}', "
             f"layers={num_layers}, hidden_size={hidden_size}, "
-            f"intermediate_size={intermediate_size}, vocab_size={vocab_size}"
+            f"intermediate_size={intermediate_size}, vocab_size={vocab_size}, "
+            f"config_dtype={cfg.torch_dtype}"
         )
 
     # Validate parameter count and clarify 4-bit packed representation vs unquantized nominal parameters

@@ -17,7 +17,15 @@ class DummyLinearModel(nn.Module):
     """Small neural module simulating transformer projection layers."""
     def __init__(self):
         super().__init__()
-        self.config = types.SimpleNamespace(model_type="custom")
+        text_cfg = types.SimpleNamespace(pad_token_id=0, eos_token_id=1)
+        self.config = types.SimpleNamespace(
+            model_type="custom",
+            _attn_implementation="eager",
+            pad_token_id=0,
+            eos_token_id=1,
+            get_text_config=lambda: text_cfg
+        )
+        self.generation_config = types.SimpleNamespace(eos_token_id=[1])
         self.q_proj = nn.Linear(64, 64)
         self.v_proj = nn.Linear(64, 64)
         self.out_proj = nn.Linear(64, 10)
@@ -25,6 +33,12 @@ class DummyLinearModel(nn.Module):
     def forward(self, x=None, input_ids=None, **kwargs):
         inp = x if x is not None else input_ids
         return self.out_proj(self.v_proj(self.q_proj(inp)))
+
+    def get_output_embeddings(self):
+        return self.out_proj
+
+    def add_model_tags(self, tags):
+        pass
 
     def prepare_inputs_for_generation(self, *args, **kwargs):
         return {}
@@ -192,4 +206,39 @@ def test_qwen_1_5b_packed_vs_nominal_parameter_accounting():
 
     packed_total = embed_params + packed_linear_elements + norm_params + quant_state_metadata
     assert packed_total == 888616448    # Exactly the reported 888,616,448!
+
+
+def test_trainable_lora_parameters_remain_float32_through_trainer_init(tmp_path):
+    """Verify RobustSFTTrainer preserves float32 trainable LoRA parameters through initialization."""
+    from src.train import RobustSFTTrainer
+    from src.model_utils import apply_lora_adapters
+    from transformers import TrainingArguments, PreTrainedTokenizerBase
+    from datasets import Dataset
+    from unittest.mock import MagicMock
+
+    dummy_model = DummyLinearModel()
+    lora_cfg = {"r": 4, "lora_alpha": 8, "target_modules": ["q_proj"]}
+    peft_model = apply_lora_adapters(dummy_model, lora_cfg, is_quantized=False)
+
+    ds = Dataset.from_dict({"input_ids": [[1, 2, 3]], "labels": [[1, 2, 3]]})
+    mock_tok = MagicMock(spec=PreTrainedTokenizerBase)
+    mock_tok.pad_token_id = 0
+    mock_tok.eos_token_id = 1
+    mock_tok.pad_token = "<|pad|>"
+    mock_tok.eos_token = "<|endoftext|>"
+    mock_tok.get_vocab.return_value = {"<|endoftext|>": 1, "<|pad|>": 0}
+
+    args = TrainingArguments(output_dir=str(tmp_path), use_cpu=True)
+    trainer = RobustSFTTrainer(
+        model=peft_model,
+        args=args,
+        train_dataset=ds,
+        processing_class=mock_tok
+    )
+
+    for name, param in trainer.model.named_parameters():
+        if param.requires_grad:
+            assert param.dtype == torch.float32, (
+                f"Trainable parameter {name} changed to {param.dtype} during SFTTrainer init!"
+            )
 

@@ -14,7 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from datasets import load_dataset
-from transformers import TrainingArguments
+from transformers import TrainingArguments, TrainerCallback
 from trl import SFTTrainer, SFTConfig
 
 from src.model_utils import apply_lora_adapters, load_model_and_tokenizer
@@ -100,8 +100,47 @@ def build_config_from_args(args: argparse.Namespace) -> Dict[str, Any]:
     return final_cfg
 
 
+class PreOptimizerStepDiagnosticCallback(TrainerCallback):
+    """Logs trainable parameter and gradient dtypes immediately before the first optimizer step."""
+
+    def __init__(self):
+        self._logged = False
+
+    def on_pre_optimizer_step(self, args, state, control, model=None, optimizer=None, **kwargs):
+        if not self._logged:
+            self._logged = True
+            m = model if model is not None else getattr(self, "model", None)
+            if m is not None:
+                param_dtypes = {}
+                grad_dtypes = {}
+                has_bf16 = False
+                for name, param in m.named_parameters():
+                    if param.requires_grad:
+                        p_dt = str(param.dtype)
+                        param_dtypes[p_dt] = param_dtypes.get(p_dt, 0) + 1
+                        if param.grad is not None:
+                            g_dt = str(param.grad.dtype)
+                            grad_dtypes[g_dt] = grad_dtypes.get(g_dt, 0) + 1
+                            if param.grad.dtype == torch.bfloat16:
+                                has_bf16 = True
+
+                logger.info(f"[DIAGNOSTIC PRE-OPTIMIZER STEP] Trainable parameter dtypes: {param_dtypes}")
+                logger.info(f"[DIAGNOSTIC PRE-OPTIMIZER STEP] Trainable gradient dtypes: {grad_dtypes}")
+                logger.info(f"[DIAGNOSTIC PRE-OPTIMIZER STEP] Any BFloat16 trainable gradients: {has_bf16}")
+                if has_bf16:
+                    raise RuntimeError("Detected BFloat16 gradients on trainable parameters before optimizer step!")
+
+
 class RobustSFTTrainer(SFTTrainer):
     """SFTTrainer with hardware-adaptive fallback for devices without chunked BF16 GEMM support."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Ensure all trainable LoRA parameters remain strictly float32 through trainer initialization
+        # before the optimizer and training loop are instantiated.
+        for name, param in self.model.named_parameters():
+            if param.requires_grad and param.dtype != torch.float32:
+                param.data = param.data.to(torch.float32)
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         try:
@@ -139,9 +178,9 @@ class RobustSFTTrainer(SFTTrainer):
                         if param.grad.dtype == torch.bfloat16:
                             has_bf16_grad = True
 
-            logger.info(f"[DIAGNOSTIC] Trainable parameter dtypes: {param_dtypes}")
-            logger.info(f"[DIAGNOSTIC] Trainable gradient dtypes: {grad_dtypes}")
-            logger.info(f"[DIAGNOSTIC] Any BFloat16 trainable gradients detected: {has_bf16_grad}")
+            logger.info(f"[DIAGNOSTIC PRE-OPTIMIZER] Trainable parameter dtypes: {param_dtypes}")
+            logger.info(f"[DIAGNOSTIC PRE-OPTIMIZER] Trainable gradient dtypes: {grad_dtypes}")
+            logger.info(f"[DIAGNOSTIC PRE-OPTIMIZER] Any BFloat16 trainable gradients detected: {has_bf16_grad}")
             if has_bf16_grad:
                 logger.error(
                     "[DIAGNOSTIC ERROR] BFloat16 gradient detected on trainable parameter! "
@@ -315,6 +354,7 @@ def run_training(config: Dict[str, Any]) -> None:
         "train_dataset": train_dataset,
         "eval_dataset": val_dataset,
         "processing_class": tokenizer,
+        "callbacks": [PreOptimizerStepDiagnosticCallback()],
     }
     # Check if SFTConfig handled dataset_text_field or if it needs to be passed directly
     if not isinstance(training_args, SFTConfig):
