@@ -119,6 +119,14 @@ def run_training(config: Dict[str, Any]) -> None:
     val_dataset = load_dataset("json", data_files=val_path, split="train")
     logger.info(f"Loaded {len(train_dataset)} training examples and {len(val_dataset)} validation examples.")
 
+    # Guarantee SFTTrainer prompt-completion schema compatibility
+    if "completion" not in train_dataset.column_names:
+        logger.info("Injecting missing 'completion' field into train split from ground-truth 'response'...")
+        train_dataset = train_dataset.map(lambda ex: {"completion": f"{ex['response'].strip()}<|im_end|>"})
+    if "completion" not in val_dataset.column_names:
+        logger.info("Injecting missing 'completion' field into validation split from ground-truth 'response'...")
+        val_dataset = val_dataset.map(lambda ex: {"completion": f"{ex['response'].strip()}<|im_end|>"})
+
     # 3. Load Model & Tokenizer
     model, tokenizer = load_model_and_tokenizer(
         model_id=model_cfg["model_id"],

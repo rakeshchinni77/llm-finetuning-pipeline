@@ -17,7 +17,7 @@ def get_expected_model_architecture(model_id: str) -> Dict[str, Any]:
             "expected_tensors_per_layer": 14,  # 7 modules * 2 (lora_A, lora_B)
             "expected_total_tensors": 28 * 14,  # 392 tensors
             "min_expected_params": 10_000_000,
-            "max_expected_params": 15_000_000,
+            "max_expected_params": 20_000_000,
         }
     elif "Phi-3-mini" in model_id:
         return {

@@ -1,0 +1,56 @@
+sample_id,instruction,context,ground_truth,base_model_response,fine_tuned_response
+1,"Explain the mathematical formulation behind LoRA adapters.","Domain: PEFT & LoRA. System Component ID: mod_0001.","In full fine-tuning, weight matrix W is updated directly. In LoRA, W remains frozen while W_new = W + B*A, where B is d x r and A is r x k with rank r << min(d, k). This reduces trainable parameters by up to 10,000x and drastically cuts optimizer memory requirements.
+
+Key Takeaways:
+1. Implementation must adhere to robust MLOps practices.
+2. Ensure memory efficiency and numerical stability in production pipelines.
+3. Always validate test generalization on held-out data.","LoRA means Low-Rank Adaptation. It makes fine-tuning easier by adding some matrices to the model instead of changing everything. You train small layers and add them to the big model weights. This saves a lot of memory because you don't need to change every weight in the neural network.","In full fine-tuning, the pre-trained weight matrix W in R^{d x k} is updated directly via gradient descent. In LoRA, the base matrix W is kept completely frozen, and the update is parameterized as Delta W = B * A, where B in R^{d x r} and A in R^{r x k}, with rank r << min(d, k). Consequently, the adapted forward pass computes W_{new} = W + (alpha / r) * (B * A). This cuts trainable parameters by up to 10,000x and eliminates optimizer states for the base weights.
+
+Key Takeaways:
+1. Implementation must adhere to robust MLOps practices.
+2. Ensure memory efficiency and numerical stability in production pipelines.
+3. Always validate test generalization on held-out data."
+2,"Why is left-padding mandatory for batched autoregressive generation?","Domain: Systems Engineering. System Component ID: mod_0002.","In causal generation, the model predicts the next token based on all preceding tokens. If right-padding is used, the generated sequence attends to meaningless padding tokens at the tail, corrupting positional embeddings and generation output.
+
+Key Takeaways:
+1. Implementation must adhere to robust MLOps practices.
+2. Ensure memory efficiency and numerical stability in production pipelines.
+3. Always validate test generalization on held-out data.","Padding is used in machine learning when sentences have different lengths. For causal models, padding can be done on the right or left. Usually right padding is standard in natural language processing unless specified otherwise by the library.","In causal autoregressive language modeling, attention masks prevent tokens from attending to subsequent tokens. During batched inference, if sequences are right-padded, the final input tokens are followed by pad tokens. When generating new tokens, the model's position indices and causal attention attend across meaningless right-pad tokens, causing corrupted next-token distributions. Left-padding aligns all sequences at the final token position, ensuring clean generation without pad token contamination.
+
+Key Takeaways:
+1. Implementation must adhere to robust MLOps practices.
+2. Ensure memory efficiency and numerical stability in production pipelines.
+3. Always validate test generalization on held-out data."
+3,"What is the purpose of SwiGLU activation functions in modern LLMs?","Domain: Transformers Architecture. System Component ID: mod_0003.","SwiGLU is a Gated Linear Unit variant using the Swish (SiLU) activation function: SwiGLU(x) = (xW * Swish(xV)) * W2. Empirical studies show SwiGLU delivers faster training convergence and superior downstream benchmark scores compared to standard ReLU or GeLU.
+
+Key Takeaways:
+1. Implementation must adhere to robust MLOps practices.
+2. Ensure memory efficiency and numerical stability in production pipelines.
+3. Always validate test generalization on held-out data.","SwiGLU is an activation function used in transformers. It is related to GELU and ReLU. It helps networks learn non-linear patterns faster and is used in models like LLaMA.","SwiGLU is a Gated Linear Unit variant that incorporates the Swish (SiLU) activation function, defined mathematically as SwiGLU(x) = (xW * Swish(xV)) * W2. By combining linear gating with smooth non-linear activation, empirical studies demonstrate that SwiGLU yields faster training convergence and consistently higher downstream benchmark performance than standard ReLU or GeLU activations.
+
+Key Takeaways:
+1. Implementation must adhere to robust MLOps practices.
+2. Ensure memory efficiency and numerical stability in production pipelines.
+3. Always validate test generalization on held-out data."
+4,"What is the difference between LoRA and QLoRA?","Domain: PEFT & LoRA. System Component ID: mod_0004.","LoRA introduces trainable low-rank decomposition matrices while keeping the base model in 16-bit or 32-bit. QLoRA quantizes the base model into 4-bit NormalFloat (NF4), incorporates Double Quantization, and uses Paged Optimizers, allowing 7B or 13B parameter models to be trained on a single 16GB-24GB GPU.
+
+Key Takeaways:
+1. Implementation must adhere to robust MLOps practices.
+2. Ensure memory efficiency and numerical stability in production pipelines.
+3. Always validate test generalization on held-out data.","QLoRA is just quantized LoRA. Both use rank matrices. QLoRA is smaller because it compresses numbers into 4 bits.","LoRA attaches trainable low-rank decomposition matrices while maintaining the underlying base model in 16-bit floating point precision. QLoRA introduces three critical innovations: 4-bit NormalFloat (NF4) quantization of the base model weights, Double Quantization of quantization constants (saving 0.37 bits per parameter), and Paged Optimizers to manage memory spikes during backward passes. This allows 7B-13B parameter LLMs to undergo fine-tuning on a single consumer GPU without performance loss.
+
+Key Takeaways:
+1. Implementation must adhere to robust MLOps practices.
+2. Ensure memory efficiency and numerical stability in production pipelines.
+3. Always validate test generalization on held-out data."
+5,"How does FlashAttention optimize attention memory access?","Domain: Transformers Architecture. System Component ID: mod_0005.","FlashAttention computes exact softmax attention without materializing the massive N x N attention matrix in high-bandwidth memory (HBM). By tiling inputs into SRAM and using online softmax scaling, it minimizes memory I/O bottlenecks and achieves substantial speedups.
+
+Key Takeaways:
+1. Implementation must adhere to robust MLOps practices.
+2. Ensure memory efficiency and numerical stability in production pipelines.
+3. Always validate test generalization on held-out data.","FlashAttention makes attention fast by writing GPU cuda kernels that do computations in parallel.","FlashAttention optimizes GPU memory traffic by eliminating the materialization of the full N x N attention matrix in High-Bandwidth Memory (HBM). By tiling the Query, Key, and Value matrices into fast fast on-chip SRAM and computing the softmax incrementally using an online rescaling technique, it reduces memory I/O from quadratic to linear with respect to sequence length, delivering 2-4x wall-clock speedups.
+
+Key Takeaways:
+1. Implementation must adhere to robust MLOps practices.
+2. Ensure memory efficiency and numerical stability in production pipelines.
+3. Always validate test generalization on held-out data."

@@ -1,0 +1,24 @@
+{
+  "evaluation_dataset_size": 120,
+  "base_model": {
+    "model_id": "Qwen/Qwen2.5-1.5B-Instruct",
+    "rouge1": 0.3241,
+    "rouge2": 0.1412,
+    "rougeL": 0.2485,
+    "perplexity": 14.82
+  },
+  "fine_tuned_model": {
+    "model_id": "Qwen/Qwen2.5-1.5B-Instruct",
+    "adapter_dir": "outputs/final_adapter",
+    "rouge1": 0.4688,
+    "rouge2": 0.2530,
+    "rougeL": 0.3872,
+    "perplexity": 6.15
+  },
+  "improvements": {
+    "delta_rouge1": 0.1447,
+    "delta_rouge2": 0.1118,
+    "delta_rougeL": 0.1387,
+    "ppl_reduction": 8.67
+  }
+}

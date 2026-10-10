@@ -53,13 +53,15 @@ def format_chatml(instruction: str, context: Optional[str], response: str, syste
         f"<|im_start|>assistant\n"
     )
 
-    full_text = f"{prompt}{clean_resp}<|im_end|>"
+    completion = f"{clean_resp}<|im_end|>"
+    full_text = f"{prompt}{completion}"
 
     return {
         "instruction": clean_inst,
         "context": clean_ctx,
         "response": clean_resp,
         "prompt": prompt,
+        "completion": completion,
         "text": full_text
     }
 
