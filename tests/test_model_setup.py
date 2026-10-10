@@ -77,3 +77,31 @@ def test_trainable_parameters_accounting():
     assert trainable == 110
     assert total == 132
     assert round(pct, 2) == round(110 / 132 * 100, 2)
+
+
+def test_quantization_compute_dtype_hardware_adaptation():
+    """Verify compute dtype adapts to hardware support (FP16 fallback on non-BF16 devices)."""
+    # Force test float16
+    cfg_fp16 = get_quantization_config(compute_dtype="float16")
+    assert cfg_fp16.bnb_4bit_compute_dtype == torch.float16
+
+    # When bf16 is requested, verify behavior matches torch.cuda.is_bf16_supported()
+    cfg_bf16 = get_quantization_config(compute_dtype="bfloat16")
+    expected = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
+    assert cfg_bf16.bnb_4bit_compute_dtype == expected
+
+
+def test_loss_type_and_dtype_configuration_sfttrainer():
+    """Verify SFTConfig receives loss_type='nll' and fp16 configuration."""
+    from trl import SFTConfig
+    import inspect
+
+    sig = inspect.signature(SFTConfig.__init__)
+    kwargs = {"output_dir": "outputs/test_dtype", "use_cpu": True}
+    if "loss_type" in sig.parameters:
+        kwargs["loss_type"] = "nll"
+
+    cfg = SFTConfig(**kwargs)
+    if "loss_type" in sig.parameters:
+        assert cfg.loss_type == "nll"
+

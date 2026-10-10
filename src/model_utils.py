@@ -94,15 +94,18 @@ def load_model_and_tokenizer(
     # Setup quantization config if requested and GPU/CUDA is available
     bnb_config = None
     cuda_available = torch.cuda.is_available()
+    bf16_supported = cuda_available and torch.cuda.is_bf16_supported()
 
     if quantization_cfg and quantization_cfg.get("load_in_4bit", True):
+        requested_compute = quantization_cfg.get("bnb_4bit_compute_dtype", "float16")
+        compute_dtype = "bfloat16" if (requested_compute == "bfloat16" and bf16_supported) else "float16"
         if cuda_available:
-            logger.info("Configuring 4-bit NormalFloat (NF4) quantization with double quantization...")
+            logger.info(f"Configuring 4-bit NormalFloat (NF4) quantization (compute_dtype={compute_dtype})...")
             bnb_config = get_quantization_config(
                 load_in_4bit=True,
                 bnb_4bit_quant_type=quantization_cfg.get("bnb_4bit_quant_type", "nf4"),
                 bnb_4bit_use_double_quant=quantization_cfg.get("bnb_4bit_use_double_quant", True),
-                compute_dtype=quantization_cfg.get("bnb_4bit_compute_dtype", "bfloat16"),
+                compute_dtype=compute_dtype,
             )
         else:
             logger.warning(
@@ -111,7 +114,7 @@ def load_model_and_tokenizer(
             )
             device_map = None
 
-    selected_dtype = torch.bfloat16 if (torch_dtype == "bfloat16" and cuda_available and torch.cuda.is_bf16_supported()) else (
+    selected_dtype = torch.bfloat16 if (torch_dtype == "bfloat16" and bf16_supported) else (
         torch.float16 if cuda_available else torch.float32
     )
 

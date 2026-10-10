@@ -4,7 +4,7 @@
 
 model:
   model_id: "Qwen/Qwen2.5-1.5B-Instruct"
-  torch_dtype: "bfloat16"
+  torch_dtype: "float16"
   trust_remote_code: false
   use_fast_tokenizer: true
 
@@ -12,7 +12,7 @@ quantization:
   load_in_4bit: true
   bnb_4bit_quant_type: "nf4"
   bnb_4bit_use_double_quant: true
-  bnb_4bit_compute_dtype: "bfloat16"
+  bnb_4bit_compute_dtype: "float16"
 
 lora:
   r: 16
@@ -66,6 +66,7 @@ training:
   save_total_limit: 2
   load_best_model_at_end: false
   gradient_checkpointing: true
-  fp16: false
-  bf16: true
+  loss_type: "nll"
+  fp16: true
+  bf16: false
   seed: 42

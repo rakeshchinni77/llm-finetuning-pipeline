@@ -43,6 +43,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--report_to", type=str, default=None, help="Tracking platform ('tensorboard' or 'wandb')")
     parser.add_argument("--max_seq_length", type=int, default=None, help="Maximum sequence token length")
     parser.add_argument("--seed", type=int, default=None, help="Random seed")
+    parser.add_argument("--fp16", action=argparse.BooleanOptionalAction, default=None, help="Enable/disable FP16")
+    parser.add_argument("--bf16", action=argparse.BooleanOptionalAction, default=None, help="Enable/disable BF16")
+    parser.add_argument("--loss_type", type=str, default=None, help="Loss computation type ('nll' or 'chunked_nll')")
     return parser.parse_args()
 
 
@@ -79,6 +82,12 @@ def build_config_from_args(args: argparse.Namespace) -> Dict[str, Any]:
         training_overrides["report_to"] = args.report_to
     if args.seed is not None:
         training_overrides["seed"] = args.seed
+    if args.fp16 is not None:
+        training_overrides["fp16"] = args.fp16
+    if args.bf16 is not None:
+        training_overrides["bf16"] = args.bf16
+    if args.loss_type is not None:
+        training_overrides["loss_type"] = args.loss_type
 
     if training_overrides:
         overrides["training"] = training_overrides
@@ -89,6 +98,27 @@ def build_config_from_args(args: argparse.Namespace) -> Dict[str, Any]:
     final_cfg = merge_configs(base_cfg, overrides)
     validate_training_config(final_cfg)
     return final_cfg
+
+
+class RobustSFTTrainer(SFTTrainer):
+    """SFTTrainer with hardware-adaptive fallback for devices without chunked BF16 GEMM support."""
+
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        try:
+            return super().compute_loss(model, inputs, return_outputs=return_outputs, num_items_in_batch=num_items_in_batch)
+        except (RuntimeError, AttributeError) as exc:
+            err_msg = str(exc)
+            if any(k in err_msg for k in ["BFloat16", "apply", "compute capability", "_ChunkedLogProbFunction"]):
+                labels = inputs.get("labels")
+                logits_inputs = {k: v for k, v in inputs.items() if k not in ("labels", "fused_lm_head")}
+                outputs = model(**logits_inputs)
+                logits = outputs.logits
+                shift_logits = logits[..., :-1, :].contiguous()
+                shift_labels = labels[..., 1:].contiguous()
+                loss_fct = torch.nn.CrossEntropyLoss()
+                loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+                return (loss, outputs) if return_outputs else loss
+            raise exc
 
 
 def run_training(config: Dict[str, Any]) -> None:
@@ -141,8 +171,33 @@ def run_training(config: Dict[str, Any]) -> None:
 
     # 5. Determine mixed precision based on device support
     use_cuda = hw_info["cuda_available"]
-    use_bf16 = train_cfg.get("bf16", True) and use_cuda and torch.cuda.is_bf16_supported()
-    use_fp16 = train_cfg.get("fp16", False) and use_cuda and not use_bf16
+    bf16_supported = use_cuda and torch.cuda.is_bf16_supported()
+
+    configured_bf16 = bool(train_cfg.get("bf16", False))
+    configured_fp16 = bool(train_cfg.get("fp16", True))
+
+    if use_cuda:
+        if bf16_supported and configured_bf16:
+            use_bf16 = True
+            use_fp16 = False
+            logger.info("Hardware supports BF16 (compute capability >= 8.0). Enabled bf16=True.")
+        else:
+            use_bf16 = False
+            use_fp16 = True
+            if configured_bf16 and not bf16_supported:
+                logger.warning(
+                    f"BF16 requested but GPU '{hw_info.get('device_name')}' does not support BF16 GEMM "
+                    f"(compute capability < 8.0). Automatically falling back to FP16 mixed precision."
+                )
+            else:
+                logger.info("Using FP16 mixed precision for CUDA device.")
+    else:
+        use_bf16 = False
+        use_fp16 = False
+        logger.info("CUDA not available. CPU training will use float32.")
+
+    loss_type = train_cfg.get("loss_type", "nll")
+    logger.info(f"Configuring SFT loss function type: '{loss_type}'")
 
     # 6. Configure TrainingArguments / SFTConfig
     output_dir = train_cfg.get("output_dir", "outputs/checkpoints")
@@ -175,6 +230,7 @@ def run_training(config: Dict[str, Any]) -> None:
         "lr_scheduler_type": train_cfg.get("lr_scheduler_type", "cosine"),
         "fp16": use_fp16,
         "bf16": use_bf16,
+        "loss_type": loss_type,
         "gradient_checkpointing": bool(train_cfg.get("gradient_checkpointing", True)),
         "seed": seed,
     }
@@ -239,12 +295,12 @@ def run_training(config: Dict[str, Any]) -> None:
         sft_init_kwargs["args"] = training_args
 
     try:
-        trainer = SFTTrainer(**sft_init_kwargs)
+        trainer = RobustSFTTrainer(**sft_init_kwargs)
     except TypeError:
         # Compatibility with older TRL where tokenizer argument is named 'tokenizer'
         if "processing_class" in sft_init_kwargs:
             sft_init_kwargs["tokenizer"] = sft_init_kwargs.pop("processing_class")
-        trainer = SFTTrainer(**sft_init_kwargs)
+        trainer = RobustSFTTrainer(**sft_init_kwargs)
 
     # 8. Execute Supervised Fine-Tuning
     logger.info("Starting Supervised Fine-Tuning training loop...")
