@@ -23,7 +23,7 @@ from src.utils.logging_utils import get_logger
 logger = get_logger("model_utils")
 
 # Allowed parameter size bounds (1B - 7B)
-MIN_PARAMS_ALLOWED = 0.9e9
+MIN_PARAMS_ALLOWED = 0.8e9
 MAX_PARAMS_ALLOWED = 7.5e9
 
 

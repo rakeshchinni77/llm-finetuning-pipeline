@@ -170,15 +170,37 @@ def run_training(config: Dict[str, Any]) -> None:
         "seed": seed,
     }
 
+    # Filter training_kwargs for cross-version compatibility
+    clean_kwargs = {k: v for k, v in training_kwargs.items() if k != "logging_dir"}
+    if not use_cuda:
+        clean_kwargs["use_cpu"] = True
+
+    max_len = int(data_cfg.get("max_seq_length", 1024))
+    dataset_text_field = data_cfg.get("text_column", "text")
+
     # Initialize SFTConfig (or TrainingArguments for older trl versions)
     try:
+        # Newer TRL SFTConfig uses max_length
         training_args = SFTConfig(
-            max_seq_length=int(data_cfg.get("max_seq_length", 1024)),
-            dataset_text_field=data_cfg.get("text_column", "text"),
-            **training_kwargs
+            max_length=max_len,
+            dataset_text_field=dataset_text_field,
+            **clean_kwargs
         )
-    except (TypeError, NameError):
-        training_args = TrainingArguments(**training_kwargs)
+    except TypeError:
+        try:
+            # Older TRL SFTConfig uses max_seq_length
+            training_args = SFTConfig(
+                max_seq_length=max_len,
+                dataset_text_field=dataset_text_field,
+                **clean_kwargs
+            )
+        except (TypeError, NameError):
+            training_args = TrainingArguments(**clean_kwargs)
+
+    try:
+        training_args.logging_dir = logging_dir
+    except Exception:
+        pass
 
     # 7. Initialize SFTTrainer
     logger.info("Initializing SFTTrainer...")
