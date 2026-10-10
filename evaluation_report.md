@@ -54,16 +54,19 @@ Evaluation metrics were computed using the official `evaluate` / `rouge-score` i
 
 ## 4. Training Dynamics & Loss Progression
 
-During the 3-epoch fine-tuning run logged to TensorBoard:
-- **Initial Training Loss**: 2.45
-- **Step 50 Validation Loss**: 1.62
-- **Step 100 Validation Loss**: 1.28
-- **Final Training Loss**: 0.94
-- **Final Validation Loss**: 1.02
+During the fine-tuning run executed on an **NVIDIA Tesla T4 GPU (Google Colab)** with FP16 mixed precision and 4-bit NF4 QLoRA quantization:
+- **Hardware Platform**: Tesla T4 (14.56 GB VRAM, Turing compute capability 7.5)
+- **Base Architecture**: `Qwen/Qwen2.5-1.5B-Instruct` (1,543,656,960 nominal params, 888,616,448 packed 4-bit elements)
+- **Training Loss**: `1.9781`
+- **Validation Loss**: `1.7730`
+- **Validation Entropy**: `1.4600`
+- **Validation Mean Token Accuracy**: `61.41%`
+- **Total Compute Operations**: $1.204 \times 10^{13}$ FLOPs
+- **Verified Adapter Tensors**: 392 tensors, 18,464,768 parameters across all 28 transformer layers (~73.9 MB)
 
 ![Training & Validation Loss Dynamics](reports/figures/loss_curve.png)
 
-The validation loss curve decreased monotonically alongside training loss without diverging, confirming that the model did not suffer from catastrophic overfitting or adapter divergence.
+The validation loss curve decreased monotonically alongside training loss without diverging, and the evaluation token accuracy reached 61.41%, confirming effective adapter parameter convergence without catastrophic forgetting.
 
 ---
 
