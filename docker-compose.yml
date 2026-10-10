@@ -1,0 +1,31 @@
+services:
+  llm_tuner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: llm_finetuning_pipeline
+    volumes:
+      - .:/workspace
+      - hf_cache:/root/.cache/huggingface
+    ports:
+      - "6006:6006"
+    env_file:
+      - .env
+    environment:
+      - TOKENIZERS_PARALLELISM=false
+      - PYTHONUNBUFFERED=1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ipc: host
+    tty: true
+    stdin_open: true
+    command: bash
+
+volumes:
+  hf_cache:
+    driver: local
