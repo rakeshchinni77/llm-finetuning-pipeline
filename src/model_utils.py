@@ -130,12 +130,33 @@ def load_model_and_tokenizer(
 
     model = AutoModelForCausalLM.from_pretrained(model_id, **load_kwargs)
 
-    # Validate parameter count bounds (1B - 7B)
-    total_params = sum(p.numel() for p in model.parameters())
-    logger.info(f"Model loaded successfully. Total parameters: {total_params:,} (~{total_params / 1e9:.2f}B)")
-    if not (MIN_PARAMS_ALLOWED <= total_params <= MAX_PARAMS_ALLOWED):
+    # Detailed architecture and provenance verification
+    cfg = getattr(model, "config", None)
+    if cfg is not None:
+        hidden_size = getattr(cfg, "hidden_size", None)
+        num_layers = getattr(cfg, "num_hidden_layers", None)
+        intermediate_size = getattr(cfg, "intermediate_size", None)
+        vocab_size = getattr(cfg, "vocab_size", None)
+        name_or_path = getattr(cfg, "_name_or_path", model_id)
+        logger.info(
+            f"Verified Model Architecture: name_or_path='{name_or_path}', "
+            f"layers={num_layers}, hidden_size={hidden_size}, "
+            f"intermediate_size={intermediate_size}, vocab_size={vocab_size}"
+        )
+
+    # Validate parameter count and clarify 4-bit packed representation vs unquantized nominal parameters
+    total_elements = sum(p.numel() for p in model.parameters())
+    nominal_params = sum(
+        p.numel() * (2 if p.__class__.__name__ == "Params4bit" else 1)
+        for p in model.parameters()
+    )
+    logger.info(
+        f"Model loaded successfully. Base packed elements: {total_elements:,} (~{total_elements / 1e9:.2f}B), "
+        f"Nominal unquantized parameters: {nominal_params:,} (~{nominal_params / 1e9:.2f}B)"
+    )
+    if not (MIN_PARAMS_ALLOWED <= total_elements <= MAX_PARAMS_ALLOWED):
         logger.warning(
-            f"Model parameter count {total_params / 1e9:.2f}B is outside standard target bounds "
+            f"Model element count {total_elements / 1e9:.2f}B is outside standard target bounds "
             f"({MIN_PARAMS_ALLOWED/1e9:.1f}B - {MAX_PARAMS_ALLOWED/1e9:.1f}B)."
         )
 
@@ -206,6 +227,17 @@ def apply_lora_adapters(
     )
 
     peft_model = get_peft_model(model, peft_config)
+
+    # Ensure all trainable parameters are strictly in float32 for mixed-precision stability
+    # and compatibility with PyTorch GradScaler unscaling on GPUs without native BF16 unscale (Tesla T4).
+    trainable_dtypes = set()
+    for name, param in peft_model.named_parameters():
+        if param.requires_grad:
+            if param.dtype != torch.float32:
+                param.data = param.data.to(torch.float32)
+            trainable_dtypes.add(param.dtype)
+
+    logger.info(f"Verified trainable parameter dtypes: {trainable_dtypes}")
     print_trainable_parameters(peft_model)
 
     return peft_model

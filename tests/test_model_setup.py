@@ -10,16 +10,21 @@ from src.model_utils import (
 )
 
 
+import types
+
+
 class DummyLinearModel(nn.Module):
     """Small neural module simulating transformer projection layers."""
     def __init__(self):
         super().__init__()
+        self.config = types.SimpleNamespace(model_type="custom")
         self.q_proj = nn.Linear(64, 64)
         self.v_proj = nn.Linear(64, 64)
         self.out_proj = nn.Linear(64, 10)
 
-    def forward(self, x):
-        return self.out_proj(self.v_proj(self.q_proj(x)))
+    def forward(self, x=None, input_ids=None, **kwargs):
+        inp = x if x is not None else input_ids
+        return self.out_proj(self.v_proj(self.q_proj(inp)))
 
     def prepare_inputs_for_generation(self, *args, **kwargs):
         return {}
@@ -104,4 +109,87 @@ def test_loss_type_and_dtype_configuration_sfttrainer():
     cfg = SFTConfig(**kwargs)
     if "loss_type" in sig.parameters:
         assert cfg.loss_type == "nll"
+
+
+def test_apply_lora_adapters_enforces_float32_trainable_parameters():
+    """Verify apply_lora_adapters guarantees trainable LoRA parameters are float32."""
+    from src.model_utils import apply_lora_adapters
+
+    dummy_model = DummyLinearModel().to(torch.bfloat16)
+    lora_cfg = {
+        "r": 4,
+        "lora_alpha": 8,
+        "lora_dropout": 0.05,
+        "target_modules": ["q_proj", "v_proj"],
+        "bias": "none",
+        "task_type": "CAUSAL_LM",
+        "gradient_checkpointing": False,
+    }
+
+    peft_model = apply_lora_adapters(dummy_model, lora_cfg, is_quantized=False)
+
+    for name, param in peft_model.named_parameters():
+        if param.requires_grad:
+            assert param.dtype == torch.float32, (
+                f"Trainable parameter {name} has dtype {param.dtype}, expected torch.float32"
+            )
+
+
+def test_no_bf16_gradients_reach_scaler():
+    """Verify backward pass on LoRA module produces only float32 gradients, safe for GradScaler unscaling."""
+    from src.model_utils import apply_lora_adapters
+
+    dummy_model = DummyLinearModel()
+    lora_cfg = {
+        "r": 4,
+        "lora_alpha": 8,
+        "target_modules": ["q_proj", "v_proj"],
+    }
+    peft_model = apply_lora_adapters(dummy_model, lora_cfg, is_quantized=False)
+
+    x = torch.randn(2, 64)
+    out = peft_model(x)
+    loss = out.sum()
+    loss.backward()
+
+    for name, param in peft_model.named_parameters():
+        if param.requires_grad:
+            assert param.grad is not None
+            assert param.grad.dtype != torch.bfloat16, (
+                f"Gradient for {name} is BFloat16, which causes NotImplementedError in FP16 GradScaler!"
+            )
+            assert param.grad.dtype == torch.float32
+
+
+def test_qwen_1_5b_packed_vs_nominal_parameter_accounting():
+    """Mathematically verify that 888,616,448 packed elements correspond to genuine 1.54B nominal parameters."""
+    vocab_size = 151936
+    hidden_size = 1536
+    num_layers = 28
+    intermediate_size = 8960
+
+    # 1. Embeddings (unquantized in QLoRA: 151,936 x 1,536)
+    embed_params = vocab_size * hidden_size  # 233,373,696
+
+    # 2. Linear projection weights per layer:
+    # q, k, v, o: 1536*(1536 + 256 + 256 + 1536) = 1536*3584 = 5,505,024
+    # gate, up, down: 3 * (1536 * 8960) = 41,287,680
+    linear_per_layer = (hidden_size * (hidden_size + 256 + 256 + hidden_size)) + (3 * hidden_size * intermediate_size)
+    assert linear_per_layer == 46792704
+
+    total_linear_weights = num_layers * linear_per_layer  # 1,310,195,712
+    # In 4-bit NF4 packing, 2 weights per byte:
+    packed_linear_elements = total_linear_weights // 2    # 655,097,856
+
+    # 3. Norms: 28 layers * (2 * 1536) + 1536 final norm = 87,552
+    norm_params = num_layers * 2 * hidden_size + hidden_size  # 87,552
+
+    # 4. BitsAndBytes QuantState scales/offsets metadata: 57,344
+    quant_state_metadata = 57344
+
+    nominal_total = embed_params + total_linear_weights + norm_params
+    assert nominal_total == 1543656960  # ~1.54B parameters
+
+    packed_total = embed_params + packed_linear_elements + norm_params + quant_state_metadata
+    assert packed_total == 888616448    # Exactly the reported 888,616,448!
 

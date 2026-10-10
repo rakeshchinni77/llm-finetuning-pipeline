@@ -120,6 +120,36 @@ class RobustSFTTrainer(SFTTrainer):
                 return (loss, outputs) if return_outputs else loss
             raise exc
 
+    def training_step(self, model, inputs, num_items_in_batch=None):
+        """Performs a training step with diagnostic logging after backward and before gradient unscaling."""
+        loss = super().training_step(model, inputs, num_items_in_batch=num_items_in_batch)
+
+        if not getattr(self, "_diagnostic_logged", False):
+            self._diagnostic_logged = True
+            param_dtypes = {}
+            grad_dtypes = {}
+            has_bf16_grad = False
+            for name, param in model.named_parameters():
+                if param.requires_grad:
+                    p_dt = str(param.dtype)
+                    param_dtypes[p_dt] = param_dtypes.get(p_dt, 0) + 1
+                    if param.grad is not None:
+                        g_dt = str(param.grad.dtype)
+                        grad_dtypes[g_dt] = grad_dtypes.get(g_dt, 0) + 1
+                        if param.grad.dtype == torch.bfloat16:
+                            has_bf16_grad = True
+
+            logger.info(f"[DIAGNOSTIC] Trainable parameter dtypes: {param_dtypes}")
+            logger.info(f"[DIAGNOSTIC] Trainable gradient dtypes: {grad_dtypes}")
+            logger.info(f"[DIAGNOSTIC] Any BFloat16 trainable gradients detected: {has_bf16_grad}")
+            if has_bf16_grad:
+                logger.error(
+                    "[DIAGNOSTIC ERROR] BFloat16 gradient detected on trainable parameter! "
+                    "This causes NotImplementedError in _amp_foreach_non_finite_check_and_unscale_cuda."
+                )
+
+        return loss
+
 
 def run_training(config: Dict[str, Any]) -> None:
     """Executes the SFTTrainer fine-tuning lifecycle."""
