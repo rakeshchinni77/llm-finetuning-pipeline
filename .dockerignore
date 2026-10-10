@@ -1,0 +1,30 @@
+# Git & Documentation
+.git
+.gitignore
+README.md
+
+# Virtual Environment & Python Caches
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+
+# Environment secrets
+.env
+.env.local
+
+# Checkpoints and Heavy Local Artifacts
+outputs/checkpoints
+outputs/final_adapter/*.safetensors
+outputs/final_adapter/*.bin
+runs/
+.cache
+hf_cache
+
+# Testing & IDEs
+.pytest_cache
+.vscode
+.idea
+notebooks/exploration.ipynb
